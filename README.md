@@ -315,6 +315,7 @@ docker compose start backend
 | `PROXY_PORT_END` | Ending port for proxies | `9100` | ❌ |
 | `HEALTH_CHECK_INTERVAL` | Health check interval (seconds) | `30` | ❌ |
 | `AUTO_ROTATION_CHECK_INTERVAL` | Rotation check interval (seconds) | `30` | ❌ |
+| `VITE_API_URL` | Frontend API base (leave as `/api` in prod) | `/api` | ❌ |
 
 ### Port Usage
 
@@ -458,7 +459,7 @@ python -m app.main
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 ```
 
 ### Project Structure

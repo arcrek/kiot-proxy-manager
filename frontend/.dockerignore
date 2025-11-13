@@ -7,5 +7,5 @@ README.md
 .env
 .DS_Store
 build
+dist
 .dockerignore
-

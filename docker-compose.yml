@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   traefik:
     image: traefik:v2.10
@@ -60,8 +58,7 @@ services:
     depends_on:
       - backend
     environment:
-      - REACT_APP_API_URL=http://app.${DOMAIN}/api
-      - DOMAIN=${DOMAIN}
+      - VITE_API_URL=/api
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`app.${DOMAIN}`)"
