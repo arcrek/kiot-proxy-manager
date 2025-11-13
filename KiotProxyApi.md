@@ -1,0 +1,117 @@
+1. Introduction
+The data of the Proxy will include the following fields:
+
+realIpAddress - Real IP address of that proxy
+http - Value of the Proxy HTTP, in the format 'ip:port'
+socks5 - Value of the Proxy SOCKS5, in the format 'ip:port'
+httpPort - Port of the proxy service with HTTP protocol
+socks5Port - Port of the proxy service with SOCKS5 protocol
+host - Address of the proxy server
+location - Location by region
+expirationAt - Time the proxy will expire
+ttl - Maximum life time of that Proxy (in seconds)
+ttc - Time remaining until the next Proxy change (in seconds)
+Warning: We will not provide services to customers who abuse our services. Please note that your activities may be terminated if you violate our terms and policies.
+
+2. Get new Proxy/ Change Proxy
+Description: This API allows users to get new proxy or change to another proxy (when the key has reached the time to change) according to each proxy key.
+
+Link: 
+https://api.kiotproxy.com/api/v1/proxies/new
+Method: GET
+Data (Params):
+key=[Key Value]
+region=[Region Value]
+Users can choose the region according to the 4 values below, when passing the values as below, KP will return the proxy with the geographical location located in the corresponding regions:
+'bac' = Proxy with geographical location in the Northern provinces. For example: Hai Phong, Quang Ninh, Phu Tho,...
+'trung' = Proxy with geographical location in the Central provinces. For example: Thanh Hoa, Binh Thuan, Da Nang,...
+'nam' = Proxy with geographical location in the Southern provinces. For example: Ho Chi Minh City, An Giang, Ca Mau,...
+'random' = Will randomly select Proxy across the entire system. Regardless of region.
+Example: GET - 
+https://api.kiotproxy.com/api/v1/proxies/new?key=K98ce716...bbc89&region=bac
+Success:
+{
+  "data": {
+    "realIpAddress": "171.229.xxx.xxx",
+    "http": "171.229.xxx.xxx:39008",
+    "socks5": "171.229.xxx.xxx:39009",
+    "nextRequestAt": 1718029591927,
+    "httpPort": 39008,
+    "socks5Port": 39009,
+    "host": "171.229.xxx.xxx",
+    "location": "Phú Thọ",
+    "expirationAt": 1718030731927,
+    "ttl": 1200,
+    "ttc": 59
+  },
+  "success": true,
+  "code": 200,
+  "timestamp": 1718029532890,
+  "status": "SUCCESS"
+}
+Failed:
+{
+  "success": false,
+  "code": 40400006,
+  "message": "Key not found",
+  "timestamp": 1718032727635,
+  "status": "FAIL",
+  "error": "KEY_NOT_FOUND"
+}
+3. Get current Proxy information
+Description: This API allows users to get information about the current Proxy assigned to the Key being used.
+
+Link: 
+https://api.kiotproxy.com/api/v1/proxies/current
+Method: GET
+Data (Params):
+key=[Key Value]
+Example: GET - 
+https://api.kiotproxy.com/api/v1/proxies/current?key=K98ce716...bbc89
+Success:
+{
+  "data": {
+    "realIpAddress": "171.229.xxx.xxx",
+    "http": "171.229.xxx.xxx:39008",
+    "socks5": "171.229.xxx.xxx:39009",
+    "nextRequestAt": 1718029591927,
+    "httpPort": 39008,
+    "socks5Port": 39009,
+    "host": "171.229.xxx.xxx",
+    "location": "Phú Thọ",
+    "expirationAt": 1718030731927,
+    "ttl": 1200,
+    "ttc": 59
+  },
+  "success": true,
+  "code": 200,
+  "timestamp": 1718029532890,
+  "status": "SUCCESS"
+}
+Failed:
+{
+  "success": false,
+  "code": 40001050,
+  "message": "Could not find the proxy being used by key Ke4bb685...c24c47",
+  "timestamp": 1718033452278,
+  "status": "FAIL",
+  "error": "PROXY_NOT_FOUND_BY_KEY"
+}
+4. Exit Proxy from Key
+Description: This API allows users to exit the Proxy from the current Key when no longer in use.
+
+Link: 
+https://api.kiotproxy.com/api/v1/proxies/out
+Method: GET
+Data (Params):
+key=[Key Value]
+Example: GET - 
+https://api.kiotproxy.com/api/v1/proxies/out?key=K98ce716...bbc89
+Success:
+{
+  "data": true,
+  "success": true,
+  "code": 200,
+  "timestamp": 1718033447504,
+  "status": "SUCCESS"
+}

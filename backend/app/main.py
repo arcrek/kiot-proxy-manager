@@ -72,24 +72,42 @@ async def lifespan(app: FastAPI):
 async def restart_all_proxies():
     """Restart all active proxies on startup"""
     try:
+        # First, clean up any stale proxy server references
+        from app.proxy_handler import proxy_servers
+        proxy_servers.clear()
+        logger.info("Cleared stale proxy server references")
+        
         proxies = get_active_proxies()
         logger.info(f"Restarting {len(proxies)} active proxies...")
         
+        success_count = 0
         for proxy in proxies:
             try:
                 if proxy.remote_http:
+                    logger.info(f"Starting proxy {proxy.id} ({proxy.key_name}) on port {proxy.port}...")
                     await start_proxy_handler(proxy.id, proxy.port, proxy.remote_http)
-                    logger.info(f"Restarted proxy {proxy.id} on port {proxy.port}")
+                    proxy.status = "active"
+                    update_proxy(proxy)
+                    success_count += 1
+                    logger.info(f"✓ Restarted proxy {proxy.id} on port {proxy.port}")
+                else:
+                    logger.warning(f"Proxy {proxy.id} has no remote_http, skipping")
+                    proxy.status = "pending"
+                    update_proxy(proxy)
             except Exception as e:
-                logger.error(f"Failed to restart proxy {proxy.id}: {e}")
+                logger.error(f"✗ Failed to restart proxy {proxy.id}: {e}")
                 proxy.status = "error"
                 update_proxy(proxy)
         
-        # Regenerate Traefik config
-        generate_traefik_config(proxies)
+        logger.info(f"Successfully restarted {success_count}/{len(proxies)} proxies")
+        
+        # Regenerate Traefik config with only successfully started proxies
+        active_proxies = [p for p in proxies if p.status == "active"]
+        generate_traefik_config(active_proxies)
+        logger.info("Traefik configuration updated")
         
     except Exception as e:
-        logger.error(f"Error restarting proxies: {e}")
+        logger.error(f"Error during proxy restart: {e}")
 
 
 # Create FastAPI app

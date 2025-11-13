@@ -54,16 +54,28 @@ class LightweightProxyHandler:
             logger.error(f"Proxy error on port {self.port}: {e}")
             return web.Response(text=f"Proxy Error: {str(e)}", status=502)
     
-    async def start(self):
+    async def start(self, retry=True):
         """Start the lightweight proxy server"""
         try:
+            # Check if port is already in use by this proxy
+            if self.proxy_id in proxy_servers:
+                logger.warning(f"Proxy {self.proxy_id} already exists, stopping old instance")
+                await self.stop()
+                await asyncio.sleep(0.3)
+            
             app = web.Application()
             app.router.add_route('*', '/{path:.*}', self.handle_request)
             
             self.runner = web.AppRunner(app, access_log=None)  # Disable access log to save RAM
             await self.runner.setup()
             
-            self.site = web.TCPSite(self.runner, '0.0.0.0', self.port)
+            # Use reuse_address for better port handling
+            self.site = web.TCPSite(
+                self.runner, 
+                '0.0.0.0', 
+                self.port,
+                reuse_address=True
+            )
             await self.site.start()
             
             # Store in global registry
@@ -75,8 +87,38 @@ class LightweightProxyHandler:
             
             logger.info(f"Lightweight proxy started on port {self.port} -> {self.remote_proxy}")
             
+        except OSError as e:
+            if retry and (e.errno == 98 or 'address already in use' in str(e).lower()):
+                logger.warning(f"Port {self.port} is already in use. Attempting cleanup...")
+                # Try to stop any existing handler on this port
+                cleaned = False
+                for pid, data in list(proxy_servers.items()):
+                    if data['port'] == self.port and pid != self.proxy_id:
+                        logger.info(f"Found conflicting proxy {pid} on port {self.port}, stopping it...")
+                        try:
+                            await stop_proxy_handler(pid)
+                            cleaned = True
+                        except Exception as cleanup_err:
+                            logger.error(f"Failed to cleanup proxy {pid}: {cleanup_err}")
+                        break
+                
+                if cleaned:
+                    await asyncio.sleep(0.5)
+                    # Retry once without retry flag to prevent infinite loop
+                    await self.start(retry=False)
+                else:
+                    raise Exception(f"Port {self.port} is in use and couldn't be cleaned up")
+            else:
+                logger.error(f"Failed to bind to port {self.port}: {e}")
+                raise
         except Exception as e:
-            logger.error(f"Failed to start proxy handler: {e}")
+            logger.error(f"Failed to start proxy handler on port {self.port}: {e}")
+            # Cleanup runner if it was created
+            if self.runner:
+                try:
+                    await self.runner.cleanup()
+                except:
+                    pass
             raise
     
     async def stop(self):
