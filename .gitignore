@@ -1,0 +1,44 @@
+# Environment
+.env
+*.env
+!env.example
+
+# Data
+data/
+traefik/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+build/
+.DS_Store
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# SSL
+letsencrypt/
+
+# Misc
+backup*.json
+

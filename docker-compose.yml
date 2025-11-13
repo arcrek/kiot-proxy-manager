@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic
+      - ./letsencrypt:/letsencrypt
+    networks:
+      - proxy-net
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    depends_on:
+      - traefik
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - KIOTPROXY_API_BASE=${KIOTPROXY_API_BASE}
+      - PROXY_PORT_START=${PROXY_PORT_START}
+      - PROXY_PORT_END=${PROXY_PORT_END}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL}
+      - AUTO_ROTATION_CHECK_INTERVAL=${AUTO_ROTATION_CHECK_INTERVAL}
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - ./data:/app/data
+      - ./traefik/dynamic:/app/traefik
+    labels:
+      - "traefik.enable=true"
+      # API routes
+      - "traefik.http.routers.api.rule=Host(`app.${DOMAIN}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.api.entrypoints=web"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+    networks:
+      - proxy-net
+    ports:
+      - "${PROXY_PORT_START}-${PROXY_PORT_END}:${PROXY_PORT_START}-${PROXY_PORT_END}"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=http://app.${DOMAIN}/api
+      - DOMAIN=${DOMAIN}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`app.${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    networks:
+      - proxy-net
+    restart: unless-stopped
+
+networks:
+  proxy-net:
+    driver: bridge
+
+volumes:
+  data:
+  letsencrypt:
+
