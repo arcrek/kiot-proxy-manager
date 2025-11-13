@@ -125,11 +125,15 @@ async def rotate_expired_proxies(proxies: List):
                     new_remote["http"]
                 )
                 
+                # Convert expiration timestamp (milliseconds) to ISO string
+                expiration_timestamp = new_remote["expirationAt"] / 1000 if new_remote.get("expirationAt") else None
+                expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+                
                 # Update proxy data
                 proxy.remote_http = new_remote["http"]
                 proxy.remote_ip = new_remote["realIpAddress"]
                 proxy.location = new_remote["location"]
-                proxy.expiration_at = new_remote["expirationAt"]
+                proxy.expiration_at = expiration_iso
                 proxy.ttl = new_remote["ttl"]
                 proxy.ttc = new_remote["ttc"]
                 proxy.last_rotated_at = datetime.now().isoformat()
@@ -175,11 +179,15 @@ async def rotate_by_interval(proxies: List, interval_minutes: int):
                     new_remote["http"]
                 )
                 
+                # Convert expiration timestamp (milliseconds) to ISO string
+                expiration_timestamp = new_remote["expirationAt"] / 1000 if new_remote.get("expirationAt") else None
+                expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+                
                 # Update proxy data
                 proxy.remote_http = new_remote["http"]
                 proxy.remote_ip = new_remote["realIpAddress"]
                 proxy.location = new_remote["location"]
-                proxy.expiration_at = new_remote["expirationAt"]
+                proxy.expiration_at = expiration_iso
                 proxy.ttl = new_remote["ttl"]
                 proxy.ttc = new_remote["ttc"]
                 proxy.last_rotated_at = datetime.now().isoformat()

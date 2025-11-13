@@ -21,6 +21,11 @@ class AddProxyRequest(BaseModel):
     region: str = "random"
 
 
+class BulkImportRequest(BaseModel):
+    kiotproxy_keys: str  # Newline-separated keys
+    region: str = "random"
+
+
 class ProxyResponse(BaseModel):
     id: int
     key_name: str

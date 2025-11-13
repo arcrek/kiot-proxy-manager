@@ -17,6 +17,20 @@ def generate_traefik_config(proxies: List[ProxyKey]):
         proxies: List of active proxy keys
     """
     try:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(TRAEFIK_CONFIG_FILE), exist_ok=True)
+        
+        # Filter active proxies
+        active_proxies = [p for p in proxies if p.is_active]
+        
+        # If no active proxies, create an empty but valid config
+        if not active_proxies:
+            with open(TRAEFIK_CONFIG_FILE, 'w') as f:
+                f.write("# No active proxies\n")
+            logger.info("Generated empty Traefik config (no active proxies)")
+            return
+        
+        # Build config for active proxies
         config = {
             "http": {
                 "routers": {},
@@ -24,10 +38,7 @@ def generate_traefik_config(proxies: List[ProxyKey]):
             }
         }
         
-        for proxy in proxies:
-            if not proxy.is_active:
-                continue
-            
+        for proxy in active_proxies:
             # Router configuration
             router_name = f"{proxy.subdomain}-router"
             config["http"]["routers"][router_name] = {
@@ -46,14 +57,11 @@ def generate_traefik_config(proxies: List[ProxyKey]):
                 }
             }
         
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(TRAEFIK_CONFIG_FILE), exist_ok=True)
-        
         # Write configuration
         with open(TRAEFIK_CONFIG_FILE, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False)
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
         
-        logger.info(f"Generated Traefik config for {len(proxies)} proxies")
+        logger.info(f"Generated Traefik config for {len(active_proxies)} proxies")
         
     except Exception as e:
         logger.error(f"Failed to generate Traefik config: {e}")

@@ -28,6 +28,29 @@ export interface AddProxyRequest {
   region: string;
 }
 
+export interface BulkImportRequest {
+  kiotproxy_keys: string;  // Newline-separated keys
+  region: string;
+}
+
+export interface BulkImportResponse {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  results: {
+    success: Array<{
+      key: string;
+      name: string;
+      subdomain: string;
+      ip: string;
+    }>;
+    failed: Array<{
+      key: string;
+      error: string;
+    }>;
+  };
+}
+
 export interface RotateProxyRequest {
   region: string;
 }

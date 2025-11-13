@@ -130,6 +130,7 @@ function ProxiesPage() {
   const [proxies, setProxies] = useState<Proxy[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const loadProxies = async () => {
@@ -206,6 +207,9 @@ function ProxiesPage() {
       <div className="actions-bar">
         <button className="btn-primary" onClick={() => setShowAddModal(true)}>
           ➕ Add Proxy
+        </button>
+        <button className="btn-primary" onClick={() => setShowBulkImportModal(true)}>
+          📥 Bulk Import
         </button>
         <button className="btn-secondary" onClick={loadProxies}>
           🔄 Refresh
@@ -323,6 +327,18 @@ function ProxiesPage() {
         />
       )}
 
+      {showBulkImportModal && (
+        <BulkImportModal
+          onClose={() => setShowBulkImportModal(false)}
+          onSuccess={(count) => {
+            setShowBulkImportModal(false);
+            loadProxies();
+            showToast(`Successfully imported ${count} proxies!`, 'success');
+          }}
+          onError={(message) => showToast(message, 'error')}
+        />
+      )}
+
       {toast && (
         <div className={`toast ${toast.type}`}>
           {toast.message}
@@ -409,6 +425,137 @@ function AddProxyModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Bulk Import Modal Component
+function BulkImportModal({
+  onClose,
+  onSuccess,
+  onError,
+}: {
+  onClose: () => void;
+  onSuccess: (count: number) => void;
+  onError: (message: string) => void;
+}) {
+  const [formData, setFormData] = useState({
+    kiotproxy_keys: '',
+    region: 'random',
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [results, setResults] = useState<any>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setResults(null);
+
+    try {
+      const response = await api.bulkImportProxies(formData);
+      setResults(response);
+      
+      if (response.failed_count === 0) {
+        // All succeeded, close and show success
+        setTimeout(() => onSuccess(response.success_count), 1500);
+      }
+    } catch (error: any) {
+      onError(error.response?.data?.detail || 'Failed to import proxies');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+        <h2>📥 Bulk Import Proxies</h2>
+        
+        {!results ? (
+          <form onSubmit={handleSubmit}>
+            <div className="form-group">
+              <label>KiotProxy API Keys (one per line)</label>
+              <textarea
+                value={formData.kiotproxy_keys}
+                onChange={(e) => setFormData({ ...formData, kiotproxy_keys: e.target.value })}
+                placeholder="K6fa3db6...&#10;K7ab2cd8...&#10;K8bc3de9..."
+                rows={10}
+                style={{ fontFamily: 'monospace', fontSize: '14px' }}
+                required
+              />
+              <small style={{ color: '#888' }}>
+                Enter up to 50 keys. Names will be auto-generated from location.
+              </small>
+            </div>
+            <div className="form-group">
+              <label>Default Region (for rotation)</label>
+              <select
+                value={formData.region}
+                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+              >
+                <option value="random">Random</option>
+                <option value="bac">Bắc (North)</option>
+                <option value="trung">Trung (Central)</option>
+                <option value="nam">Nam (South)</option>
+              </select>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn-cancel" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="btn-primary" disabled={isLoading}>
+                {isLoading ? 'Importing...' : 'Import All'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div>
+            <div style={{ marginBottom: '20px' }}>
+              <h3>Import Results</h3>
+              <p>
+                Total: {results.total} | 
+                ✅ Success: {results.success_count} | 
+                ❌ Failed: {results.failed_count}
+              </p>
+            </div>
+
+            {results.results.success.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ color: '#10b981' }}>✅ Successfully Imported</h4>
+                <div style={{ maxHeight: '200px', overflow: 'auto', fontSize: '13px' }}>
+                  {results.results.success.map((item: any, idx: number) => (
+                    <div key={idx} style={{ padding: '5px', borderBottom: '1px solid #eee' }}>
+                      <strong>{item.name}</strong> - {item.ip} → {item.subdomain}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {results.results.failed.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ color: '#ef4444' }}>❌ Failed Imports</h4>
+                <div style={{ maxHeight: '200px', overflow: 'auto', fontSize: '13px' }}>
+                  {results.results.failed.map((item: any, idx: number) => (
+                    <div key={idx} style={{ padding: '5px', borderBottom: '1px solid #eee' }}>
+                      <strong>{item.key}</strong> - {item.error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button 
+                className="btn-primary" 
+                onClick={() => results.failed_count === 0 ? onSuccess(results.success_count) : onClose()}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

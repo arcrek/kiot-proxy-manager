@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Proxy, Settings, AddProxyRequest, RotateProxyRequest, UpdateSettingsRequest, User } from './types';
+import { Proxy, Settings, AddProxyRequest, BulkImportRequest, BulkImportResponse, RotateProxyRequest, UpdateSettingsRequest, User } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -35,6 +35,11 @@ export const getProxies = async (): Promise<Proxy[]> => {
 
 export const createProxy = async (data: AddProxyRequest): Promise<Proxy> => {
   const response = await api.post('/proxies', data);
+  return response.data;
+};
+
+export const bulkImportProxies = async (data: BulkImportRequest): Promise<BulkImportResponse> => {
+  const response = await api.post('/proxies/bulk-import', data);
   return response.data;
 };
 

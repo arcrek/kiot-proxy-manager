@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Cookie, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models import (
-    LoginRequest, LoginResponse, AddProxyRequest, ProxyResponse,
+    LoginRequest, LoginResponse, AddProxyRequest, BulkImportRequest, ProxyResponse,
     RotateProxyRequest, UpdateSettingsRequest, SettingsResponse
 )
 from app.database import (
@@ -205,9 +205,9 @@ async def list_proxies(user = Depends(get_current_user)):
 async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user)):
     """Create new proxy"""
     try:
-        # Get proxy from KiotProxy API
+        # Get proxy from KiotProxy API (use current proxy, not new)
         logger.info(f"Fetching proxy for key {request.kiotproxy_key[:8]}...")
-        remote_data = await kiotproxy_client.get_new_proxy(request.kiotproxy_key, request.region)
+        remote_data = await kiotproxy_client.get_current_proxy(request.kiotproxy_key)
         
         # Allocate resources
         proxy_id = get_next_proxy_id()
@@ -217,6 +217,11 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
         
         # Create proxy object
         from app.models import ProxyKey
+        
+        # Convert expiration timestamp (milliseconds) to ISO string
+        expiration_timestamp = remote_data["expirationAt"] / 1000 if remote_data.get("expirationAt") else None
+        expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+        
         proxy = ProxyKey(
             id=proxy_id,
             user_id=user.id,
@@ -230,7 +235,7 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
             remote_ip=remote_data["realIpAddress"],
             location=remote_data["location"],
             status="active",
-            expiration_at=remote_data["expirationAt"],
+            expiration_at=expiration_iso,
             ttl=remote_data["ttl"],
             ttc=remote_data["ttc"],
             last_rotated_at=datetime.now().isoformat(),
@@ -276,6 +281,109 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/proxies/bulk-import")
+async def bulk_import_proxies(request: BulkImportRequest, user = Depends(get_current_user)):
+    """Bulk import proxies from newline-separated keys"""
+    try:
+        # Parse keys (split by newline, filter empty lines)
+        keys = [k.strip() for k in request.kiotproxy_keys.split('\n') if k.strip()]
+        
+        if not keys:
+            raise HTTPException(status_code=400, detail="No keys provided")
+        
+        if len(keys) > 50:
+            raise HTTPException(status_code=400, detail="Maximum 50 keys per import")
+        
+        results = {
+            "success": [],
+            "failed": []
+        }
+        
+        for idx, kiotproxy_key in enumerate(keys):
+            try:
+                # Get current proxy from KiotProxy API
+                logger.info(f"Importing proxy {idx+1}/{len(keys)}: {kiotproxy_key[:8]}...")
+                remote_data = await kiotproxy_client.get_current_proxy(kiotproxy_key)
+                
+                # Allocate resources
+                proxy_id = get_next_proxy_id()
+                subdomain = get_next_subdomain()
+                port = get_next_port()
+                domain = os.getenv("DOMAIN", "localhost")
+                
+                # Auto-generate key name from location
+                location = remote_data.get("location", "Unknown")
+                key_name = f"{location}-{proxy_id}"
+                
+                # Convert expiration timestamp
+                expiration_timestamp = remote_data["expirationAt"] / 1000 if remote_data.get("expirationAt") else None
+                expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+                
+                # Create proxy object
+                from app.models import ProxyKey
+                proxy = ProxyKey(
+                    id=proxy_id,
+                    user_id=user.id,
+                    key_name=key_name,
+                    kiotproxy_key=kiotproxy_key,
+                    subdomain=subdomain,
+                    port=port,
+                    region=request.region,
+                    is_active=True,
+                    remote_http=remote_data["http"],
+                    remote_ip=remote_data["realIpAddress"],
+                    location=location,
+                    status="active",
+                    expiration_at=expiration_iso,
+                    ttl=remote_data["ttl"],
+                    ttc=remote_data["ttc"],
+                    last_rotated_at=datetime.now().isoformat(),
+                    created_at=datetime.now().isoformat()
+                )
+                
+                # Save to database
+                add_proxy(proxy)
+                
+                # Start proxy handler
+                await start_proxy_handler(proxy_id, port, remote_data["http"])
+                
+                # Add log
+                add_log(proxy_id, "bulk_import", "success", request.region, f"Imported as {key_name}")
+                
+                results["success"].append({
+                    "key": kiotproxy_key[:8] + "...",
+                    "name": key_name,
+                    "subdomain": f"{subdomain}.{domain}",
+                    "ip": remote_data["realIpAddress"]
+                })
+                
+                logger.info(f"Successfully imported proxy {proxy_id}: {key_name}")
+                
+            except Exception as e:
+                logger.error(f"Failed to import key {kiotproxy_key[:8]}: {e}")
+                results["failed"].append({
+                    "key": kiotproxy_key[:8] + "...",
+                    "error": str(e)
+                })
+        
+        # Update Traefik config once after all imports
+        active_proxies = get_active_proxies()
+        generate_traefik_config(active_proxies)
+        
+        return {
+            "total": len(keys),
+            "success_count": len(results["success"]),
+            "failed_count": len(results["failed"]),
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bulk import failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/proxies/{proxy_id}/rotate", response_model=ProxyResponse)
 async def rotate_proxy(proxy_id: int, request: RotateProxyRequest, user = Depends(get_current_user)):
     """Rotate proxy to new IP"""
@@ -295,11 +403,15 @@ async def rotate_proxy(proxy_id: int, request: RotateProxyRequest, user = Depend
         # Update proxy handler
         await restart_proxy_handler(proxy_id, proxy.port, new_remote["http"])
         
+        # Convert expiration timestamp (milliseconds) to ISO string
+        expiration_timestamp = new_remote["expirationAt"] / 1000 if new_remote.get("expirationAt") else None
+        expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+        
         # Update proxy data
         proxy.remote_http = new_remote["http"]
         proxy.remote_ip = new_remote["realIpAddress"]
         proxy.location = new_remote["location"]
-        proxy.expiration_at = new_remote["expirationAt"]
+        proxy.expiration_at = expiration_iso
         proxy.ttl = new_remote["ttl"]
         proxy.ttc = new_remote["ttc"]
         proxy.region = request.region
