@@ -16,7 +16,6 @@ class LoginResponse(BaseModel):
 
 
 class AddProxyRequest(BaseModel):
-    key_name: str
     kiotproxy_key: str
     region: str = "random"
 

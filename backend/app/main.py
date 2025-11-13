@@ -218,6 +218,10 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
         # Create proxy object
         from app.models import ProxyKey
         
+        # Auto-generate key name from location
+        location = remote_data.get("location", "Unknown")
+        key_name = f"{location}-{proxy_id}"
+        
         # Convert expiration timestamp (milliseconds) to ISO string
         expiration_timestamp = remote_data["expirationAt"] / 1000 if remote_data.get("expirationAt") else None
         expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
@@ -225,7 +229,7 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
         proxy = ProxyKey(
             id=proxy_id,
             user_id=user.id,
-            key_name=request.key_name,
+            key_name=key_name,
             kiotproxy_key=request.kiotproxy_key,
             subdomain=subdomain,
             port=port,
@@ -233,7 +237,7 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
             is_active=True,
             remote_http=remote_data["http"],
             remote_ip=remote_data["realIpAddress"],
-            location=remote_data["location"],
+            location=location,
             status="active",
             expiration_at=expiration_iso,
             ttl=remote_data["ttl"],

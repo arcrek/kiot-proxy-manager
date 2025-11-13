@@ -23,7 +23,6 @@ export interface Settings {
 }
 
 export interface AddProxyRequest {
-  key_name: string;
   kiotproxy_key: string;
   region: string;
 }

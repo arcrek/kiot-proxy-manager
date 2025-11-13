@@ -359,7 +359,6 @@ function AddProxyModal({
   onError: (message: string) => void;
 }) {
   const [formData, setFormData] = useState<AddProxyRequest>({
-    key_name: '',
     kiotproxy_key: '',
     region: 'random',
   });
@@ -385,16 +384,6 @@ function AddProxyModal({
         <h2>Add New Proxy</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Proxy Name</label>
-            <input
-              type="text"
-              value={formData.key_name}
-              onChange={(e) => setFormData({ ...formData, key_name: e.target.value })}
-              placeholder="My Proxy 1"
-              required
-            />
-          </div>
-          <div className="form-group">
             <label>KiotProxy API Key</label>
             <input
               type="text"
@@ -403,6 +392,9 @@ function AddProxyModal({
               placeholder="K6fa3db6..."
               required
             />
+            <small style={{ color: '#888' }}>
+              Name will be auto-generated from proxy location
+            </small>
           </div>
           <div className="form-group">
             <label>Region</label>
@@ -421,7 +413,7 @@ function AddProxyModal({
               Cancel
             </button>
             <button type="submit" className="btn-primary" disabled={isLoading}>
-              {isLoading ? 'Creating...' : 'Create Proxy'}
+              {isLoading ? 'Adding...' : 'Add Proxy'}
             </button>
           </div>
         </form>
