@@ -63,8 +63,8 @@ async def lifespan(app: FastAPI):
     health_task.cancel()
     rotation_task.cancel()
     
-    # Cleanup all proxy processes
-    cleanup_all_proxies()
+    # Cleanup all proxy servers
+    await cleanup_all_proxies()
     
     logger.info("KiotProxy Manager shut down complete")
 

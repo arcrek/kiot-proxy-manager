@@ -4,8 +4,15 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import bcrypt
 from app.models import User, ProxyKey, LogEntry, Settings
+import threading
 
 DATA_FILE = "/app/data/data.json"
+
+# Simple in-memory cache to reduce file I/O
+_data_cache = None
+_cache_lock = threading.Lock()
+_cache_timestamp = None
+CACHE_TTL = 2  # seconds - keep data in memory for 2 seconds
 
 
 def init_data_file():
@@ -43,16 +50,44 @@ def init_data_file():
 
 
 def load_data() -> Dict:
-    """Load data from JSON file"""
+    """Load data from JSON file with caching"""
+    global _data_cache, _cache_timestamp
+    
     init_data_file()
-    with open(DATA_FILE, 'r') as f:
-        return json.load(f)
+    
+    with _cache_lock:
+        # Check if cache is valid
+        now = datetime.now().timestamp()
+        if _data_cache is not None and _cache_timestamp is not None:
+            if now - _cache_timestamp < CACHE_TTL:
+                # Return cached copy
+                return json.loads(json.dumps(_data_cache))  # Deep copy
+        
+        # Load from file
+        with open(DATA_FILE, 'r') as f:
+            _data_cache = json.load(f)
+            _cache_timestamp = now
+            return json.loads(json.dumps(_data_cache))  # Deep copy
 
 
 def save_data(data: Dict):
-    """Save data to JSON file"""
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    """Save data to JSON file and update cache"""
+    global _data_cache, _cache_timestamp
+    
+    with _cache_lock:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+        # Update cache
+        _data_cache = json.loads(json.dumps(data))  # Deep copy
+        _cache_timestamp = datetime.now().timestamp()
+
+
+def clear_cache():
+    """Clear the data cache (useful for testing)"""
+    global _data_cache, _cache_timestamp
+    with _cache_lock:
+        _data_cache = None
+        _cache_timestamp = None
 
 
 # Settings operations

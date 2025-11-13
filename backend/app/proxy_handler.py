@@ -1,127 +1,138 @@
 import asyncio
-import subprocess
-import signal
+import httpx
 from typing import Dict, Optional
 import logging
+from aiohttp import web
 
 logger = logging.getLogger(__name__)
 
-# Global registry of running proxy processes
-proxy_processes: Dict[int, subprocess.Popen] = {}
+# Global registry of running proxy servers
+proxy_servers: Dict[int, dict] = {}
 
 
-class ProxyHandler:
-    """Manages HTTP proxy server processes"""
+class LightweightProxyHandler:
+    """Lightweight async HTTP proxy handler - uses minimal RAM"""
     
     def __init__(self, proxy_id: int, port: int, remote_proxy: str):
         self.proxy_id = proxy_id
         self.port = port
         self.remote_proxy = remote_proxy
-        self.process: Optional[subprocess.Popen] = None
+        self.runner: Optional[web.AppRunner] = None
+        self.site: Optional[web.TCPSite] = None
+        
+    async def handle_request(self, request: web.Request) -> web.Response:
+        """Forward HTTP request through remote proxy"""
+        try:
+            # Build target URL
+            target_url = f"{request.scheme}://{request.host}{request.path_qs}"
+            
+            # Create proxy URL
+            proxy_url = f"http://{self.remote_proxy}"
+            
+            # Forward request through proxy
+            async with httpx.AsyncClient(
+                proxy=proxy_url,
+                timeout=30.0,
+                follow_redirects=True,
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10)
+            ) as client:
+                response = await client.request(
+                    method=request.method,
+                    url=target_url,
+                    headers=dict(request.headers),
+                    content=await request.read() if request.body_exists else None,
+                )
+                
+                # Return response
+                return web.Response(
+                    body=response.content,
+                    status=response.status_code,
+                    headers=dict(response.headers)
+                )
+                
+        except Exception as e:
+            logger.error(f"Proxy error on port {self.port}: {e}")
+            return web.Response(text=f"Proxy Error: {str(e)}", status=502)
     
     async def start(self):
-        """Start the HTTP proxy server"""
+        """Start the lightweight proxy server"""
         try:
-            # Use proxy.py to create HTTP proxy that forwards through remote proxy
-            cmd = [
-                "proxy",
-                "--hostname", "0.0.0.0",
-                "--port", str(self.port),
-                "--upstream-proxy", f"http://{self.remote_proxy}",
-                "--log-level", "ERROR"
-            ]
+            app = web.Application()
+            app.router.add_route('*', '/{path:.*}', self.handle_request)
             
-            logger.info(f"Starting proxy handler on port {self.port} -> {self.remote_proxy}")
+            self.runner = web.AppRunner(app, access_log=None)  # Disable access log to save RAM
+            await self.runner.setup()
             
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            self.site = web.TCPSite(self.runner, '0.0.0.0', self.port)
+            await self.site.start()
             
             # Store in global registry
-            proxy_processes[self.proxy_id] = self.process
+            proxy_servers[self.proxy_id] = {
+                'handler': self,
+                'port': self.port,
+                'remote': self.remote_proxy
+            }
             
-            # Wait a bit to ensure it started
-            await asyncio.sleep(0.5)
-            
-            if self.process.poll() is not None:
-                raise Exception(f"Proxy process failed to start on port {self.port}")
-            
-            logger.info(f"Proxy handler started successfully on port {self.port}")
+            logger.info(f"Lightweight proxy started on port {self.port} -> {self.remote_proxy}")
             
         except Exception as e:
             logger.error(f"Failed to start proxy handler: {e}")
             raise
     
     async def stop(self):
-        """Stop the HTTP proxy server"""
-        if self.process:
-            try:
-                logger.info(f"Stopping proxy handler on port {self.port}")
-                self.process.send_signal(signal.SIGTERM)
-                self.process.wait(timeout=5)
-                logger.info(f"Proxy handler stopped on port {self.port}")
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Force killing proxy handler on port {self.port}")
-                self.process.kill()
-            except Exception as e:
-                logger.error(f"Error stopping proxy handler: {e}")
-            finally:
-                if self.proxy_id in proxy_processes:
-                    del proxy_processes[self.proxy_id]
-                self.process = None
+        """Stop the proxy server"""
+        try:
+            if self.site:
+                await self.site.stop()
+            if self.runner:
+                await self.runner.cleanup()
+            
+            if self.proxy_id in proxy_servers:
+                del proxy_servers[self.proxy_id]
+                
+            logger.info(f"Proxy stopped on port {self.port}")
+            
+        except Exception as e:
+            logger.error(f"Error stopping proxy: {e}")
     
     async def restart(self, new_remote_proxy: Optional[str] = None):
-        """Restart the proxy server with optional new remote proxy"""
+        """Restart proxy with new remote"""
         if new_remote_proxy:
             self.remote_proxy = new_remote_proxy
-        
         await self.stop()
         await self.start()
     
     def is_running(self) -> bool:
         """Check if proxy is running"""
-        if not self.process:
-            return False
-        return self.process.poll() is None
+        return self.proxy_id in proxy_servers
 
 
-async def start_proxy_handler(proxy_id: int, port: int, remote_proxy: str) -> ProxyHandler:
-    """Start a new proxy handler"""
-    handler = ProxyHandler(proxy_id, port, remote_proxy)
+async def start_proxy_handler(proxy_id: int, port: int, remote_proxy: str):
+    """Start a new lightweight proxy handler"""
+    handler = LightweightProxyHandler(proxy_id, port, remote_proxy)
     await handler.start()
     return handler
 
 
 async def stop_proxy_handler(proxy_id: int):
     """Stop a proxy handler"""
-    if proxy_id in proxy_processes:
-        process = proxy_processes[proxy_id]
-        try:
-            process.send_signal(signal.SIGTERM)
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-        except Exception as e:
-            logger.error(f"Error stopping proxy {proxy_id}: {e}")
-        finally:
-            del proxy_processes[proxy_id]
+    if proxy_id in proxy_servers:
+        handler = proxy_servers[proxy_id]['handler']
+        await handler.stop()
 
 
 async def restart_proxy_handler(proxy_id: int, port: int, remote_proxy: str):
     """Restart a proxy handler"""
     await stop_proxy_handler(proxy_id)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.2)
     await start_proxy_handler(proxy_id, port, remote_proxy)
 
 
-def cleanup_all_proxies():
-    """Clean up all proxy processes on shutdown"""
-    for proxy_id, process in list(proxy_processes.items()):
+async def cleanup_all_proxies():
+    """Clean up all proxy servers on shutdown"""
+    for proxy_id in list(proxy_servers.keys()):
         try:
-            process.send_signal(signal.SIGTERM)
-            process.wait(timeout=2)
-        except:
-            process.kill()
+            await stop_proxy_handler(proxy_id)
+        except Exception as e:
+            logger.error(f"Error cleaning up proxy {proxy_id}: {e}")
 

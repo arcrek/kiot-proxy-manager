@@ -24,6 +24,11 @@ services:
     networks:
       - proxy-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
 
   backend:
     build: ./backend
@@ -36,8 +41,8 @@ services:
       - KIOTPROXY_API_BASE=${KIOTPROXY_API_BASE}
       - PROXY_PORT_START=${PROXY_PORT_START}
       - PROXY_PORT_END=${PROXY_PORT_END}
-      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL}
-      - AUTO_ROTATION_CHECK_INTERVAL=${AUTO_ROTATION_CHECK_INTERVAL}
+      - HEALTH_CHECK_INTERVAL=${HEALTH_CHECK_INTERVAL:-120}
+      - AUTO_ROTATION_CHECK_INTERVAL=${AUTO_ROTATION_CHECK_INTERVAL:-60}
       - SECRET_KEY=${SECRET_KEY}
     volumes:
       - ./data:/app/data
@@ -53,6 +58,11 @@ services:
     ports:
       - "${PROXY_PORT_START}-${PROXY_PORT_END}:${PROXY_PORT_START}-${PROXY_PORT_END}"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2500M
+          cpus: '0.75'
 
   frontend:
     build: ./frontend
@@ -68,6 +78,11 @@ services:
     networks:
       - proxy-net
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
 
 networks:
   proxy-net:
