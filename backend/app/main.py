@@ -549,29 +549,45 @@ async def check_proxy_health(proxy_id: int, user = Depends(get_current_user)):
         if not proxy.remote_http:
             raise Exception("Proxy has no remote_http configured")
         
-        # Test proxy by making a request through it
-        proxy_url = f"http://{proxy.remote_http}"
+        # Test raw TCP proxy by connecting to remote KiotProxy
+        remote_parts = proxy.remote_http.split(':')
+        remote_host = remote_parts[0]
+        remote_port = int(remote_parts[1])
         start_time = datetime.now()
         
         try:
-            async with httpx.AsyncClient(
-                proxies={"http://": proxy_url, "https://": proxy_url},
+            # Try to establish TCP connection to remote KiotProxy
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(remote_host, remote_port),
                 timeout=10.0
-            ) as client:
-                response = await client.get("http://google.com")
+            )
+            
+            # Send a simple HTTP request through the proxy
+            http_request = b"GET http://google.com/ HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n"
+            writer.write(http_request)
+            await writer.drain()
+            
+            # Read some response
+            response_data = await asyncio.wait_for(reader.read(100), timeout=10.0)
+            
+            # Close connection
+            writer.close()
+            await writer.wait_closed()
+            
+            # Calculate latency
+            latency = int((datetime.now() - start_time).total_seconds() * 1000)
+            
+            # Check if we got a response
+            if response_data and b"HTTP" in response_data:
+                proxy.status = "active"
+                proxy.latency_ms = latency
+                logger.info(f"Proxy {proxy_id} health check passed: {latency}ms")
+            else:
+                proxy.status = "error"
+                proxy.latency_ms = None
+                logger.warning(f"Proxy {proxy_id} got invalid response")
                 
-                # Calculate latency
-                latency = int((datetime.now() - start_time).total_seconds() * 1000)
-                
-                if response.status_code == 200:
-                    proxy.status = "active"
-                    proxy.latency_ms = latency
-                    logger.info(f"Proxy {proxy_id} health check passed: {latency}ms")
-                else:
-                    proxy.status = "error"
-                    proxy.latency_ms = None
-                    logger.warning(f"Proxy {proxy_id} returned status {response.status_code}")
-        except Exception as check_error:
+        except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as check_error:
             proxy.status = "error"
             proxy.latency_ms = None
             logger.error(f"Proxy {proxy_id} health check failed: {check_error}")
@@ -612,17 +628,31 @@ async def test_proxy_connection(proxy_id: int, user = Depends(get_current_user))
         "tests": []
     }
     
-    # Test 1: Proxy through remote (what health check does)
-    test1 = {"name": "Remote Proxy Connection", "status": "pending"}
+    # Test 1: Raw TCP connection to remote KiotProxy
+    test1 = {"name": "Remote KiotProxy TCP Connection", "status": "pending"}
     try:
-        proxy_url = f"http://{proxy.remote_http}"
-        async with httpx.AsyncClient(
-            proxies={"http://": proxy_url, "https://": proxy_url},
-            timeout=10.0
-        ) as client:
-            response = await client.get("http://httpbin.org/ip")
-            test1["status"] = "success"
-            test1["details"] = f"Response: {response.text[:150]}"
+        remote_parts = proxy.remote_http.split(':')
+        remote_host = remote_parts[0]
+        remote_port = int(remote_parts[1])
+        
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(remote_host, remote_port),
+            timeout=5.0
+        )
+        
+        # Send HTTP request
+        http_request = b"GET http://httpbin.org/ip HTTP/1.1\r\nHost: httpbin.org\r\nConnection: close\r\n\r\n"
+        writer.write(http_request)
+        await writer.drain()
+        
+        # Read response
+        response_data = await asyncio.wait_for(reader.read(500), timeout=5.0)
+        
+        writer.close()
+        await writer.wait_closed()
+        
+        test1["status"] = "success"
+        test1["details"] = f"Connected successfully. Response: {response_data[:200].decode('utf-8', errors='ignore')}"
     except Exception as e:
         test1["status"] = "failed"
         test1["error"] = str(e)

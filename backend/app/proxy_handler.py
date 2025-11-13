@@ -30,37 +30,48 @@ class RawProxyHandler:
         
         try:
             # Connect to remote KiotProxy
-            remote_reader, remote_writer = await asyncio.wait_for(
-                asyncio.open_connection(self.remote_host, self.remote_port),
-                timeout=10.0
-            )
+            try:
+                remote_reader, remote_writer = await asyncio.wait_for(
+                    asyncio.open_connection(self.remote_host, self.remote_port),
+                    timeout=10.0
+                )
+            except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as e:
+                logger.error(f"Proxy {self.port}: Failed to connect to {self.remote_host}:{self.remote_port} - {e}")
+                return
             
             logger.debug(f"Proxy {self.port}: Connected to {self.remote_host}:{self.remote_port}")
             
             # Forward data bidirectionally
-            await asyncio.gather(
-                self._forward_data(client_reader, remote_writer, "client->remote"),
-                self._forward_data(remote_reader, client_writer, "remote->client"),
-                return_exceptions=True
-            )
+            try:
+                await asyncio.gather(
+                    self._forward_data(client_reader, remote_writer, "client->remote"),
+                    self._forward_data(remote_reader, client_writer, "remote->client"),
+                )
+            except asyncio.CancelledError:
+                logger.debug(f"Proxy {self.port}: Connection cancelled")
+                raise
+            except Exception as e:
+                logger.debug(f"Proxy {self.port}: Forwarding error: {e}")
             
-        except asyncio.TimeoutError:
-            logger.error(f"Proxy {self.port}: Connection timeout to {self.remote_host}:{self.remote_port}")
+        except asyncio.CancelledError:
+            # Task cancelled during shutdown
+            logger.debug(f"Proxy {self.port}: Client handler cancelled")
         except Exception as e:
-            logger.error(f"Proxy {self.port}: Connection error: {e}")
+            logger.error(f"Proxy {self.port}: Unexpected error: {e}")
         finally:
-            # Close connections
-            if remote_writer:
+            # Close connections gracefully
+            if remote_writer and not remote_writer.is_closing():
                 try:
                     remote_writer.close()
                     await remote_writer.wait_closed()
-                except:
+                except Exception:
                     pass
-            try:
-                client_writer.close()
-                await client_writer.wait_closed()
-            except:
-                pass
+            if not client_writer.is_closing():
+                try:
+                    client_writer.close()
+                    await client_writer.wait_closed()
+                except Exception:
+                    pass
             
             logger.debug(f"Proxy {self.port}: Connection closed from {client_addr}")
     

@@ -32,31 +32,47 @@ async def health_check_worker():
                         logger.warning(f"Proxy {proxy.id} has no remote_http, skipping health check")
                         continue
                     
-                    # Test proxy by making a request through the remote proxy
+                    # Test raw TCP proxy by connecting to remote KiotProxy
                     start_time = datetime.now()
-                    proxy_url = f"http://{proxy.remote_http}"
+                    remote_parts = proxy.remote_http.split(':')
+                    remote_host = remote_parts[0]
+                    remote_port = int(remote_parts[1])
                     
                     try:
-                        async with httpx.AsyncClient(
-                            proxies={"http://": proxy_url, "https://": proxy_url},
-                            timeout=10.0
-                        ) as client:
-                            response = await client.get("http://google.com")
-                            
-                            # Calculate latency
-                            latency = int((datetime.now() - start_time).total_seconds() * 1000)
-                            
-                            # Update proxy status
-                            if response.status_code == 200:
-                                proxy.status = "active"
-                                proxy.latency_ms = latency
-                            else:
-                                proxy.status = "error"
-                                proxy.latency_ms = None
-                            
-                            proxy.last_check_at = datetime.now().isoformat()
-                            
-                    except Exception as e:
+                        # Try to establish TCP connection to remote KiotProxy
+                        reader, writer = await asyncio.wait_for(
+                            asyncio.open_connection(remote_host, remote_port),
+                            timeout=5.0
+                        )
+                        
+                        # Send a simple HTTP request through the proxy
+                        http_request = b"GET http://google.com/ HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n"
+                        writer.write(http_request)
+                        await writer.drain()
+                        
+                        # Read some response
+                        response_data = await asyncio.wait_for(reader.read(100), timeout=5.0)
+                        
+                        # Close connection
+                        writer.close()
+                        await writer.wait_closed()
+                        
+                        # Calculate latency
+                        latency = int((datetime.now() - start_time).total_seconds() * 1000)
+                        
+                        # Check if we got a response
+                        if response_data and b"HTTP" in response_data:
+                            proxy.status = "active"
+                            proxy.latency_ms = latency
+                            logger.debug(f"Proxy {proxy.id} health check passed: {latency}ms")
+                        else:
+                            proxy.status = "error"
+                            proxy.latency_ms = None
+                            logger.warning(f"Proxy {proxy.id} got invalid response")
+                        
+                        proxy.last_check_at = datetime.now().isoformat()
+                        
+                    except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as e:
                         logger.warning(f"Proxy {proxy.id} health check failed: {e}")
                         proxy.status = "error"
                         proxy.latency_ms = None
