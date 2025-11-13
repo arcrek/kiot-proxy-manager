@@ -17,10 +17,28 @@ if ! command -v docker &> /dev/null; then
 fi
 
 # Check if Docker Compose is installed
-if ! command -v docker-compose &> /dev/null; then
+if ! docker compose version &> /dev/null && ! command -v docker-compose &> /dev/null; then
     echo "❌ Docker Compose is not installed. Please install Docker Compose first."
     echo "Visit: https://docs.docker.com/compose/install/"
     exit 1
+fi
+
+# Check if user can run docker without sudo
+if ! docker ps &> /dev/null; then
+    echo "⚠️  Warning: Cannot run Docker commands."
+    echo ""
+    echo "This usually means you need to add your user to the docker group:"
+    echo "  sudo usermod -aG docker $USER"
+    echo "  newgrp docker"
+    echo ""
+    echo "Or run this script with sudo:"
+    echo "  sudo ./setup.sh"
+    echo ""
+    read -p "Continue anyway? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
 fi
 
 echo "✅ Docker and Docker Compose are installed"
