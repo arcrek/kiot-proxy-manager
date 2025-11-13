@@ -188,9 +188,30 @@ function ProxiesPage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast('Copied to clipboard', 'success');
+  const copyToClipboard = async (text: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied to clipboard!', 'success');
+    } catch (error) {
+      // Fallback for browsers that don't support clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        showToast('Copied to clipboard!', 'success');
+      } catch (err) {
+        showToast('Failed to copy', 'error');
+      }
+      document.body.removeChild(textArea);
+    }
   };
 
   if (isLoading) {
@@ -270,7 +291,7 @@ function ProxiesPage() {
                       <span className="proxy-info-value">{proxy.endpoint}</span>
                       <button
                         className="copy-btn"
-                        onClick={() => copyToClipboard(proxy.endpoint)}
+                        onClick={(e) => copyToClipboard(proxy.endpoint, e)}
                         title="Copy endpoint"
                       >
                         📋 Copy

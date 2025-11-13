@@ -26,12 +26,12 @@ class LightweightProxyHandler:
             # Build target URL
             target_url = f"{request.scheme}://{request.host}{request.path_qs}"
             
-            # Create proxy URL
+            # Create proxy URL (httpx uses 'proxies' dict, not 'proxy')
             proxy_url = f"http://{self.remote_proxy}"
             
             # Forward request through proxy
             async with httpx.AsyncClient(
-                proxy=proxy_url,
+                proxies={"http://": proxy_url, "https://": proxy_url},
                 timeout=30.0,
                 follow_redirects=True,
                 limits=httpx.Limits(max_connections=50, max_keepalive_connections=10)

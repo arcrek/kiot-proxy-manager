@@ -202,7 +202,7 @@ async def list_proxies(user = Depends(get_current_user)):
             id=p.id,
             key_name=p.key_name,
             subdomain=p.subdomain,
-            endpoint=f"{p.subdomain}.{domain}",
+            endpoint=f"{p.subdomain}.{domain}:{p.port}",
             remote_http=p.remote_http,
             remote_ip=p.remote_ip,
             location=p.location,
@@ -278,13 +278,13 @@ async def create_proxy(request: AddProxyRequest, user = Depends(get_current_user
         # Add log
         add_log(proxy_id, "create", "success", request.region, f"Created proxy {subdomain}")
         
-        logger.info(f"Successfully created proxy {proxy_id} at {subdomain}.{domain}")
+        logger.info(f"Successfully created proxy {proxy_id} at {subdomain}.{domain}:{port}")
         
         return ProxyResponse(
             id=proxy.id,
             key_name=proxy.key_name,
             subdomain=proxy.subdomain,
-            endpoint=f"{subdomain}.{domain}",
+            endpoint=f"{subdomain}.{domain}:{port}",
             remote_http=proxy.remote_http,
             remote_ip=proxy.remote_ip,
             location=proxy.location,
@@ -449,7 +449,7 @@ async def rotate_proxy(proxy_id: int, request: RotateProxyRequest, user = Depend
             id=proxy.id,
             key_name=proxy.key_name,
             subdomain=proxy.subdomain,
-            endpoint=f"{proxy.subdomain}.{domain}",
+            endpoint=f"{proxy.subdomain}.{domain}:{proxy.port}",
             remote_http=proxy.remote_http,
             remote_ip=proxy.remote_ip,
             location=proxy.location,
