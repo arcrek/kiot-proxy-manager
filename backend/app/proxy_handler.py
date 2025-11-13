@@ -1,8 +1,6 @@
 import asyncio
-import httpx
 from typing import Dict, Optional
 import logging
-from aiohttp import web
 
 logger = logging.getLogger(__name__)
 
@@ -10,52 +8,83 @@ logger = logging.getLogger(__name__)
 proxy_servers: Dict[int, dict] = {}
 
 
-class LightweightProxyHandler:
-    """Lightweight async HTTP proxy handler - uses minimal RAM"""
+class RawProxyHandler:
+    """Raw TCP proxy handler - forwards all data without parsing"""
     
     def __init__(self, proxy_id: int, port: int, remote_proxy: str):
         self.proxy_id = proxy_id
         self.port = port
-        self.remote_proxy = remote_proxy
-        self.runner: Optional[web.AppRunner] = None
-        self.site: Optional[web.TCPSite] = None
+        # Parse remote_proxy (format: "ip:port")
+        remote_parts = remote_proxy.split(':')
+        self.remote_host = remote_parts[0]
+        self.remote_port = int(remote_parts[1])
+        self.server: Optional[asyncio.Server] = None
         
-    async def handle_request(self, request: web.Request) -> web.Response:
-        """Forward HTTP request through remote proxy"""
+    async def handle_client(self, client_reader: asyncio.StreamReader, client_writer: asyncio.StreamWriter):
+        """Handle incoming client connection"""
+        client_addr = client_writer.get_extra_info('peername')
+        logger.debug(f"Proxy {self.port}: New connection from {client_addr}")
+        
+        remote_reader = None
+        remote_writer = None
+        
         try:
-            # Build target URL
-            target_url = f"{request.scheme}://{request.host}{request.path_qs}"
+            # Connect to remote KiotProxy
+            remote_reader, remote_writer = await asyncio.wait_for(
+                asyncio.open_connection(self.remote_host, self.remote_port),
+                timeout=10.0
+            )
             
-            # Create proxy URL (httpx uses 'proxies' dict, not 'proxy')
-            proxy_url = f"http://{self.remote_proxy}"
+            logger.debug(f"Proxy {self.port}: Connected to {self.remote_host}:{self.remote_port}")
             
-            # Forward request through proxy
-            async with httpx.AsyncClient(
-                proxies={"http://": proxy_url, "https://": proxy_url},
-                timeout=30.0,
-                follow_redirects=True,
-                limits=httpx.Limits(max_connections=50, max_keepalive_connections=10)
-            ) as client:
-                response = await client.request(
-                    method=request.method,
-                    url=target_url,
-                    headers=dict(request.headers),
-                    content=await request.read() if request.body_exists else None,
-                )
-                
-                # Return response
-                return web.Response(
-                    body=response.content,
-                    status=response.status_code,
-                    headers=dict(response.headers)
-                )
-                
+            # Forward data bidirectionally
+            await asyncio.gather(
+                self._forward_data(client_reader, remote_writer, "client->remote"),
+                self._forward_data(remote_reader, client_writer, "remote->client"),
+                return_exceptions=True
+            )
+            
+        except asyncio.TimeoutError:
+            logger.error(f"Proxy {self.port}: Connection timeout to {self.remote_host}:{self.remote_port}")
         except Exception as e:
-            logger.error(f"Proxy error on port {self.port}: {e}")
-            return web.Response(text=f"Proxy Error: {str(e)}", status=502)
+            logger.error(f"Proxy {self.port}: Connection error: {e}")
+        finally:
+            # Close connections
+            if remote_writer:
+                try:
+                    remote_writer.close()
+                    await remote_writer.wait_closed()
+                except:
+                    pass
+            try:
+                client_writer.close()
+                await client_writer.wait_closed()
+            except:
+                pass
+            
+            logger.debug(f"Proxy {self.port}: Connection closed from {client_addr}")
+    
+    async def _forward_data(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, direction: str):
+        """Forward data from reader to writer"""
+        try:
+            while True:
+                data = await reader.read(8192)  # 8KB chunks
+                if not data:
+                    break
+                
+                writer.write(data)
+                await writer.drain()
+                
+                logger.debug(f"Proxy {self.port}: Forwarded {len(data)} bytes ({direction})")
+                
+        except asyncio.CancelledError:
+            # Connection closed normally
+            pass
+        except Exception as e:
+            logger.debug(f"Proxy {self.port}: Forward error ({direction}): {e}")
     
     async def start(self, retry=True):
-        """Start the lightweight proxy server"""
+        """Start the raw TCP proxy server"""
         try:
             # Check if port is already in use by this proxy
             if self.proxy_id in proxy_servers:
@@ -63,29 +92,23 @@ class LightweightProxyHandler:
                 await self.stop()
                 await asyncio.sleep(0.3)
             
-            app = web.Application()
-            app.router.add_route('*', '/{path:.*}', self.handle_request)
-            
-            self.runner = web.AppRunner(app, access_log=None)  # Disable access log to save RAM
-            await self.runner.setup()
-            
-            # Use reuse_address for better port handling
-            self.site = web.TCPSite(
-                self.runner, 
-                '0.0.0.0', 
+            # Start TCP server
+            self.server = await asyncio.start_server(
+                self.handle_client,
+                '0.0.0.0',
                 self.port,
-                reuse_address=True
+                reuse_address=True,
+                reuse_port=True
             )
-            await self.site.start()
             
             # Store in global registry
             proxy_servers[self.proxy_id] = {
                 'handler': self,
                 'port': self.port,
-                'remote': self.remote_proxy
+                'remote': f"{self.remote_host}:{self.remote_port}"
             }
             
-            logger.info(f"Lightweight proxy started on port {self.port} -> {self.remote_proxy}")
+            logger.info(f"Raw TCP proxy started on port {self.port} -> {self.remote_host}:{self.remote_port}")
             
         except OSError as e:
             if retry and (e.errno == 98 or 'address already in use' in str(e).lower()):
@@ -113,21 +136,14 @@ class LightweightProxyHandler:
                 raise
         except Exception as e:
             logger.error(f"Failed to start proxy handler on port {self.port}: {e}")
-            # Cleanup runner if it was created
-            if self.runner:
-                try:
-                    await self.runner.cleanup()
-                except:
-                    pass
             raise
     
     async def stop(self):
         """Stop the proxy server"""
         try:
-            if self.site:
-                await self.site.stop()
-            if self.runner:
-                await self.runner.cleanup()
+            if self.server:
+                self.server.close()
+                await self.server.wait_closed()
             
             if self.proxy_id in proxy_servers:
                 del proxy_servers[self.proxy_id]
@@ -140,7 +156,9 @@ class LightweightProxyHandler:
     async def restart(self, new_remote_proxy: Optional[str] = None):
         """Restart proxy with new remote"""
         if new_remote_proxy:
-            self.remote_proxy = new_remote_proxy
+            remote_parts = new_remote_proxy.split(':')
+            self.remote_host = remote_parts[0]
+            self.remote_port = int(remote_parts[1])
         await self.stop()
         await self.start()
     
@@ -150,8 +168,8 @@ class LightweightProxyHandler:
 
 
 async def start_proxy_handler(proxy_id: int, port: int, remote_proxy: str):
-    """Start a new lightweight proxy handler"""
-    handler = LightweightProxyHandler(proxy_id, port, remote_proxy)
+    """Start a new raw TCP proxy handler"""
+    handler = RawProxyHandler(proxy_id, port, remote_proxy)
     await handler.start()
     return handler
 

@@ -594,6 +594,43 @@ async def check_proxy_health(proxy_id: int, user = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/proxies/{proxy_id}/test")
+async def test_proxy_connection(proxy_id: int, user = Depends(get_current_user)):
+    """Test proxy connection with detailed diagnostics"""
+    proxy = get_proxy_by_id(proxy_id)
+    
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+    
+    if proxy.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    diagnostics = {
+        "proxy_id": proxy_id,
+        "remote_proxy": proxy.remote_http,
+        "port": proxy.port,
+        "tests": []
+    }
+    
+    # Test 1: Proxy through remote (what health check does)
+    test1 = {"name": "Remote Proxy Connection", "status": "pending"}
+    try:
+        proxy_url = f"http://{proxy.remote_http}"
+        async with httpx.AsyncClient(
+            proxies={"http://": proxy_url, "https://": proxy_url},
+            timeout=10.0
+        ) as client:
+            response = await client.get("http://httpbin.org/ip")
+            test1["status"] = "success"
+            test1["details"] = f"Response: {response.text[:150]}"
+    except Exception as e:
+        test1["status"] = "failed"
+        test1["error"] = str(e)
+    diagnostics["tests"].append(test1)
+    
+    return diagnostics
+
+
 @app.delete("/api/proxies/{proxy_id}")
 async def delete_proxy_endpoint(proxy_id: int, user = Depends(get_current_user)):
     """Delete proxy"""
