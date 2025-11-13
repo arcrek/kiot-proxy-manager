@@ -59,19 +59,11 @@ class RawProxyHandler:
         except Exception as e:
             logger.error(f"Proxy {self.port}: Unexpected error: {e}")
         finally:
-            # Close connections gracefully
+            # Close connections gracefully (without awaiting if cancelled)
             if remote_writer and not remote_writer.is_closing():
-                try:
-                    remote_writer.close()
-                    await remote_writer.wait_closed()
-                except Exception:
-                    pass
+                remote_writer.close()
             if not client_writer.is_closing():
-                try:
-                    client_writer.close()
-                    await client_writer.wait_closed()
-                except Exception:
-                    pass
+                client_writer.close()
             
             logger.debug(f"Proxy {self.port}: Connection closed from {client_addr}")
     

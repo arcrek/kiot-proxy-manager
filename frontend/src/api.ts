@@ -58,6 +58,16 @@ export const checkProxy = async (id: number) => {
   return response.data;
 };
 
+export const checkAllProxies = async () => {
+  const response = await api.post('/proxies/check-all');
+  return response.data;
+};
+
+export const updateAllProxies = async () => {
+  const response = await api.post('/proxies/update-all');
+  return response.data;
+};
+
 export const deleteProxy = async (id: number) => {
   const response = await api.delete(`/proxies/${id}`);
   return response.data;

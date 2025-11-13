@@ -222,3 +222,73 @@ async def rotate_by_interval(proxies: List, interval_minutes: int):
             logger.error(f"Failed to rotate proxy {proxy.id} by interval: {e}")
             add_log(proxy.id, "auto_rotate_interval", "failed", proxy.region, str(e))
 
+
+async def auto_update_worker():
+    """Background worker to auto-update all proxies periodically"""
+    from .kiotproxy import kiotproxy_client
+    from .proxy_handler import restart_proxy_handler
+    from datetime import datetime
+    import asyncio
+    
+    logger.info("Auto-update worker started")
+    
+    while True:
+        try:
+            settings = get_settings()
+            
+            if not settings.auto_update_enabled:
+                await asyncio.sleep(10)
+                continue
+            
+            interval_seconds = settings.auto_update_interval_seconds
+            logger.debug(f"Auto-update running with {interval_seconds}s interval")
+            
+            # Get all active proxies
+            data = load_data()
+            all_proxies = [ProxyKey(**p) for p in data.get("proxy_keys", [])]
+            
+            update_count = 0
+            fail_count = 0
+            
+            for proxy in all_proxies:
+                try:
+                    # Get current proxy info from KiotProxy API
+                    current_data = await kiotproxy_client.get_current_proxy(proxy.kiotproxy_key)
+                    
+                    # Convert expiration timestamp
+                    expiration_timestamp = current_data["expirationAt"] / 1000 if current_data.get("expirationAt") else None
+                    expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+                    
+                    # Update proxy data
+                    old_ip = proxy.remote_ip
+                    proxy.remote_http = current_data["http"]
+                    proxy.remote_ip = current_data["realIpAddress"]
+                    proxy.location = current_data["location"]
+                    proxy.expiration_at = expiration_iso
+                    proxy.ttl = current_data["ttl"]
+                    proxy.ttc = current_data["ttc"]
+                    proxy.status = "active"
+                    
+                    update_proxy(proxy)
+                    
+                    # Restart proxy handler if IP changed
+                    if old_ip != proxy.remote_ip:
+                        await restart_proxy_handler(proxy.id, proxy.port, proxy.remote_http)
+                        logger.info(f"Auto-update: Proxy {proxy.id} IP changed {old_ip} -> {proxy.remote_ip}")
+                    
+                    update_count += 1
+                    
+                except Exception as e:
+                    fail_count += 1
+                    logger.debug(f"Auto-update failed for proxy {proxy.id}: {e}")
+            
+            if update_count > 0 or fail_count > 0:
+                logger.info(f"Auto-update completed: {update_count} updated, {fail_count} failed")
+            
+            # Sleep for the configured interval
+            await asyncio.sleep(interval_seconds)
+            
+        except Exception as e:
+            logger.error(f"Auto-update worker error: {e}")
+            await asyncio.sleep(30)
+

@@ -20,6 +20,8 @@ export interface Settings {
   auto_rotate_on_expiration: boolean;
   auto_rotate_interval_enabled: boolean;
   auto_rotate_interval_minutes: number;
+  auto_update_enabled: boolean;
+  auto_update_interval_seconds: number;
 }
 
 export interface AddProxyRequest {
@@ -58,6 +60,8 @@ export interface UpdateSettingsRequest {
   auto_rotate_on_expiration?: boolean;
   auto_rotate_interval_enabled?: boolean;
   auto_rotate_interval_minutes?: number;
+  auto_update_enabled?: boolean;
+  auto_update_interval_seconds?: number;
 }
 
 export interface User {

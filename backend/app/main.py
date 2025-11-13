@@ -25,7 +25,7 @@ from app.database import (
 from app.kiotproxy import kiotproxy_client
 from app.proxy_handler import start_proxy_handler, stop_proxy_handler, restart_proxy_handler, cleanup_all_proxies
 from app.traefik_config import generate_traefik_config, remove_proxy_from_traefik
-from app.worker import health_check_worker, auto_rotation_worker
+from app.worker import health_check_worker, auto_rotation_worker, auto_update_worker
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
     # Start background workers
     health_task = asyncio.create_task(health_check_worker())
     rotation_task = asyncio.create_task(auto_rotation_worker())
+    update_task = asyncio.create_task(auto_update_worker())
     
     logger.info("KiotProxy Manager started successfully")
     
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
     # Cancel background tasks
     health_task.cancel()
     rotation_task.cancel()
+    update_task.cancel()
     
     # Cleanup all proxy servers
     await cleanup_all_proxies()
@@ -607,6 +609,126 @@ async def check_proxy_health(proxy_id: int, user = Depends(get_current_user)):
         
     except Exception as e:
         logger.error(f"Failed to check proxy {proxy_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/proxies/check-all")
+async def check_all_proxies(user = Depends(get_current_user)):
+    """Check health of all proxies"""
+    try:
+        proxies = get_all_proxies(user.id)
+        
+        results = {
+            "total": len(proxies),
+            "checked": 0,
+            "active": 0,
+            "error": 0
+        }
+        
+        for proxy in proxies:
+            try:
+                if not proxy.remote_http:
+                    continue
+                
+                # Test TCP connection
+                remote_parts = proxy.remote_http.split(':')
+                remote_host = remote_parts[0]
+                remote_port = int(remote_parts[1])
+                start_time = datetime.now()
+                
+                try:
+                    reader, writer = await asyncio.wait_for(
+                        asyncio.open_connection(remote_host, remote_port),
+                        timeout=5.0
+                    )
+                    
+                    http_request = b"GET http://google.com/ HTTP/1.1\r\nHost: google.com\r\nConnection: close\r\n\r\n"
+                    writer.write(http_request)
+                    await writer.drain()
+                    
+                    response_data = await asyncio.wait_for(reader.read(100), timeout=5.0)
+                    
+                    writer.close()
+                    
+                    latency = int((datetime.now() - start_time).total_seconds() * 1000)
+                    
+                    if response_data and b"HTTP" in response_data:
+                        proxy.status = "active"
+                        proxy.latency_ms = latency
+                        results["active"] += 1
+                    else:
+                        proxy.status = "error"
+                        proxy.latency_ms = None
+                        results["error"] += 1
+                        
+                except Exception:
+                    proxy.status = "error"
+                    proxy.latency_ms = None
+                    results["error"] += 1
+                
+                proxy.last_check_at = datetime.now().isoformat()
+                update_proxy(proxy)
+                results["checked"] += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to check proxy {proxy.id}: {e}")
+        
+        logger.info(f"Bulk check completed: {results['active']} active, {results['error']} error")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Bulk check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/proxies/update-all")
+async def update_all_proxies(user = Depends(get_current_user)):
+    """Update all proxies from KiotProxy API"""
+    try:
+        proxies = get_all_proxies(user.id)
+        
+        results = {
+            "total": len(proxies),
+            "updated": 0,
+            "failed": 0
+        }
+        
+        for proxy in proxies:
+            try:
+                # Get current proxy info from KiotProxy API
+                current_data = await kiotproxy_client.get_current_proxy(proxy.kiotproxy_key)
+                
+                # Convert expiration timestamp
+                expiration_timestamp = current_data["expirationAt"] / 1000 if current_data.get("expirationAt") else None
+                expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+                
+                # Update proxy data
+                proxy.remote_http = current_data["http"]
+                proxy.remote_ip = current_data["realIpAddress"]
+                proxy.location = current_data["location"]
+                proxy.expiration_at = expiration_iso
+                proxy.ttl = current_data["ttl"]
+                proxy.ttc = current_data["ttc"]
+                proxy.status = "active"
+                
+                update_proxy(proxy)
+                
+                # Restart proxy handler with updated info
+                await restart_proxy_handler(proxy.id, proxy.port, proxy.remote_http)
+                
+                add_log(proxy.id, "bulk_update", "success", None, f"Updated to {proxy.remote_ip}")
+                results["updated"] += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to update proxy {proxy.id}: {e}")
+                add_log(proxy.id, "bulk_update", "failed", None, str(e))
+                results["failed"] += 1
+        
+        logger.info(f"Bulk update completed: {results['updated']} updated, {results['failed']} failed")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Bulk update failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

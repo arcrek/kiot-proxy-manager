@@ -51,12 +51,16 @@ class UpdateSettingsRequest(BaseModel):
     auto_rotate_on_expiration: Optional[bool] = None
     auto_rotate_interval_enabled: Optional[bool] = None
     auto_rotate_interval_minutes: Optional[int] = None
+    auto_update_enabled: Optional[bool] = None
+    auto_update_interval_seconds: Optional[int] = None
 
 
 class SettingsResponse(BaseModel):
     auto_rotate_on_expiration: bool
     auto_rotate_interval_enabled: bool
     auto_rotate_interval_minutes: int
+    auto_update_enabled: bool
+    auto_update_interval_seconds: int
 
 
 # Data Models (internal)
@@ -105,4 +109,6 @@ class Settings(BaseModel):
     auto_rotate_on_expiration: bool = True
     auto_rotate_interval_enabled: bool = False
     auto_rotate_interval_minutes: int = 10
+    auto_update_enabled: bool = True
+    auto_update_interval_seconds: int = 30
 

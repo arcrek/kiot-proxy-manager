@@ -182,6 +182,28 @@ function ProxiesPage() {
     }
   };
 
+  const handleCheckAll = async () => {
+    try {
+      showToast('Checking all proxies...', 'success');
+      const result = await api.checkAllProxies();
+      showToast(`Checked ${result.checked} proxies: ${result.active} active, ${result.error} error`, 'success');
+      setTimeout(() => loadProxies(), 1000);
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Bulk check failed', 'error');
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    try {
+      showToast('Updating all proxies...', 'success');
+      const result = await api.updateAllProxies();
+      showToast(`Updated ${result.updated} proxies (${result.failed} failed)`, result.failed > 0 ? 'error' : 'success');
+      setTimeout(() => loadProxies(), 1000);
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Bulk update failed', 'error');
+    }
+  };
+
   const handleDelete = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this proxy?')) return;
     
@@ -245,6 +267,12 @@ function ProxiesPage() {
         </button>
         <button className="btn-secondary" onClick={loadProxies}>
           🔄 Refresh
+        </button>
+        <button className="btn-secondary" onClick={handleCheckAll}>
+          🔍 Check All
+        </button>
+        <button className="btn-secondary" onClick={handleUpdateAll}>
+          ↻ Update All
         </button>
       </div>
 
@@ -691,6 +719,39 @@ function SettingsPage() {
                   setSettings({
                     ...settings,
                     auto_rotate_interval_minutes: parseInt(e.target.value) || 2,
+                  })
+                }
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="setting-item">
+          <div className="setting-header">
+            <input
+              type="checkbox"
+              id="auto-update"
+              checked={settings.auto_update_enabled}
+              onChange={(e) =>
+                setSettings({ ...settings, auto_update_enabled: e.target.checked })
+              }
+            />
+            <label htmlFor="auto-update">Auto-update proxies</label>
+          </div>
+          <p className="setting-description">
+            Automatically update all proxy information at regular intervals
+          </p>
+          {settings.auto_update_enabled && (
+            <div className="setting-input">
+              <label>Interval (seconds, min: 10):</label>
+              <input
+                type="number"
+                min="10"
+                value={settings.auto_update_interval_seconds}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    auto_update_interval_seconds: parseInt(e.target.value) || 30,
                   })
                 }
               />
