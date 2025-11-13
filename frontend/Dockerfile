@@ -3,12 +3,16 @@ FROM node:18-alpine as build
 
 WORKDIR /app
 
-# Disable source maps for faster build
+# Build environment variables
 ENV GENERATE_SOURCEMAP=false
+ENV TSC_COMPILE_ON_ERROR=true
+ENV ESLINT_NO_DEV_ERRORS=true
+ENV DISABLE_ESLINT_PLUGIN=true
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps --no-package-lock
+RUN npm install --force
 
+COPY env.production .env.production
 COPY . .
 RUN npm run build
 

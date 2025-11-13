@@ -19,7 +19,12 @@
     "eject": "react-scripts eject"
   },
   "overrides": {
-    "ajv": "^8.12.0"
+    "ajv": "^8.12.0",
+    "ajv-keywords": "^5.1.0",
+    "fork-ts-checker-webpack-plugin": {
+      "ajv": "^8.12.0",
+      "ajv-keywords": "^5.1.0"
+    }
   },
   "eslintConfig": {
     "extends": [
