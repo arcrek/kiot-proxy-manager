@@ -161,13 +161,24 @@ function ProxiesPage() {
     }
   };
 
-  const handleRestart = async (id: number) => {
+  const handleUpdate = async (id: number) => {
     try {
-      await api.restartProxy(id);
-      showToast('Proxy restarted successfully', 'success');
+      await api.updateProxy(id);
+      showToast('Proxy updated successfully', 'success');
       loadProxies();
     } catch (error: any) {
-      showToast(error.response?.data?.detail || 'Failed to restart proxy', 'error');
+      showToast(error.response?.data?.detail || 'Failed to update proxy', 'error');
+    }
+  };
+
+  const handleCheckProxy = async (id: number) => {
+    try {
+      await api.checkProxy(id);
+      showToast('Proxy check started', 'success');
+      // Reload after a short delay to see updated status
+      setTimeout(() => loadProxies(), 2000);
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Failed to check proxy', 'error');
     }
   };
 
@@ -309,16 +320,23 @@ function ProxiesPage() {
                       <button
                         className="btn-icon"
                         onClick={() => handleRotate(proxy.id, 'random')}
-                        title="Rotate"
+                        title="Rotate to new IP"
                       >
                         🔄
                       </button>
                       <button
                         className="btn-icon"
-                        onClick={() => handleRestart(proxy.id)}
-                        title="Restart"
+                        onClick={() => handleUpdate(proxy.id)}
+                        title="Update proxy info"
                       >
-                        🔁
+                        ↻
+                      </button>
+                      <button
+                        className="btn-icon"
+                        onClick={() => handleCheckProxy(proxy.id)}
+                        title="Check proxy health"
+                      >
+                        🔍
                       </button>
                       <button
                         className="btn-icon delete"

@@ -28,35 +28,39 @@ async def health_check_worker():
             
             for proxy in proxies:
                 try:
-                    # Test proxy by making a request through it
-                    start_time = datetime.now()
+                    if not proxy.remote_http:
+                        logger.warning(f"Proxy {proxy.id} has no remote_http, skipping health check")
+                        continue
                     
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        # Use the internal port to test
-                        proxies_dict = {
-                            "http://": f"http://127.0.0.1:{proxy.port}",
-                            "https://": f"http://127.0.0.1:{proxy.port}"
-                        }
-                        
-                        try:
-                            response = await client.get(
-                                "http://google.com",
-                                proxies=proxies_dict
-                            )
+                    # Test proxy by making a request through the remote proxy
+                    start_time = datetime.now()
+                    proxy_url = f"http://{proxy.remote_http}"
+                    
+                    try:
+                        async with httpx.AsyncClient(
+                            proxies={"http://": proxy_url, "https://": proxy_url},
+                            timeout=10.0
+                        ) as client:
+                            response = await client.get("http://google.com")
                             
                             # Calculate latency
                             latency = int((datetime.now() - start_time).total_seconds() * 1000)
                             
                             # Update proxy status
-                            proxy.status = "active"
-                            proxy.latency_ms = latency
+                            if response.status_code == 200:
+                                proxy.status = "active"
+                                proxy.latency_ms = latency
+                            else:
+                                proxy.status = "error"
+                                proxy.latency_ms = None
+                            
                             proxy.last_check_at = datetime.now().isoformat()
                             
-                        except Exception as e:
-                            logger.warning(f"Proxy {proxy.id} health check failed: {e}")
-                            proxy.status = "error"
-                            proxy.latency_ms = 0
-                            proxy.last_check_at = datetime.now().isoformat()
+                    except Exception as e:
+                        logger.warning(f"Proxy {proxy.id} health check failed: {e}")
+                        proxy.status = "error"
+                        proxy.latency_ms = None
+                        proxy.last_check_at = datetime.now().isoformat()
                     
                     # Save updated proxy
                     update_proxy(proxy)

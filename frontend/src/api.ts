@@ -48,8 +48,13 @@ export const rotateProxy = async (id: number, data: RotateProxyRequest): Promise
   return response.data;
 };
 
-export const restartProxy = async (id: number) => {
-  const response = await api.post(`/proxies/${id}/restart`);
+export const updateProxy = async (id: number): Promise<Proxy> => {
+  const response = await api.post(`/proxies/${id}/update`);
+  return response.data;
+};
+
+export const checkProxy = async (id: number) => {
+  const response = await api.post(`/proxies/${id}/check`);
   return response.data;
 };
 

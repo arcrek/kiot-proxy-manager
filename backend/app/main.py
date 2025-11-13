@@ -469,9 +469,9 @@ async def rotate_proxy(proxy_id: int, request: RotateProxyRequest, user = Depend
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/proxies/{proxy_id}/restart")
-async def restart_proxy(proxy_id: int, user = Depends(get_current_user)):
-    """Restart proxy handler"""
+@app.post("/api/proxies/{proxy_id}/update", response_model=ProxyResponse)
+async def update_proxy_info(proxy_id: int, user = Depends(get_current_user)):
+    """Update proxy information from KiotProxy API"""
     proxy = get_proxy_by_id(proxy_id)
     
     if not proxy:
@@ -481,12 +481,116 @@ async def restart_proxy(proxy_id: int, user = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not authorized")
     
     try:
-        logger.info(f"Restarting proxy {proxy_id}")
+        logger.info(f"Updating proxy {proxy_id} info from KiotProxy API")
+        
+        # Get current proxy info from KiotProxy API
+        current_data = await kiotproxy_client.get_current_proxy(proxy.kiotproxy_key)
+        
+        # Convert expiration timestamp
+        expiration_timestamp = current_data["expirationAt"] / 1000 if current_data.get("expirationAt") else None
+        expiration_iso = datetime.fromtimestamp(expiration_timestamp).isoformat() if expiration_timestamp else None
+        
+        # Update proxy data
+        proxy.remote_http = current_data["http"]
+        proxy.remote_ip = current_data["realIpAddress"]
+        proxy.location = current_data["location"]
+        proxy.expiration_at = expiration_iso
+        proxy.ttl = current_data["ttl"]
+        proxy.ttc = current_data["ttc"]
+        proxy.status = "active"
+        
+        update_proxy(proxy)
+        
+        # Restart proxy handler with updated info
         await restart_proxy_handler(proxy_id, proxy.port, proxy.remote_http)
-        add_log(proxy_id, "restart", "success")
-        return {"success": True}
+        
+        add_log(proxy_id, "update", "success", None, f"Updated to {proxy.remote_ip}")
+        logger.info(f"Successfully updated proxy {proxy_id}")
+        
+        domain = os.getenv("DOMAIN", "localhost")
+        return ProxyResponse(
+            id=proxy.id,
+            key_name=proxy.key_name,
+            subdomain=proxy.subdomain,
+            endpoint=f"{proxy.subdomain}.{domain}:{proxy.port}",
+            remote_http=proxy.remote_http,
+            remote_ip=proxy.remote_ip,
+            location=proxy.location,
+            status=proxy.status,
+            latency_ms=proxy.latency_ms,
+            expiration_at=proxy.expiration_at,
+            ttl=proxy.ttl,
+            ttc=proxy.ttc,
+            last_check_at=proxy.last_check_at,
+            last_rotated_at=proxy.last_rotated_at,
+            created_at=proxy.created_at
+        )
+        
     except Exception as e:
-        logger.error(f"Failed to restart proxy {proxy_id}: {e}")
+        logger.error(f"Failed to update proxy {proxy_id}: {e}")
+        add_log(proxy_id, "update", "failed", None, str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/proxies/{proxy_id}/check")
+async def check_proxy_health(proxy_id: int, user = Depends(get_current_user)):
+    """Manually trigger health check for a proxy"""
+    proxy = get_proxy_by_id(proxy_id)
+    
+    if not proxy:
+        raise HTTPException(status_code=404, detail="Proxy not found")
+    
+    if proxy.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    try:
+        logger.info(f"Checking health of proxy {proxy_id}")
+        
+        if not proxy.remote_http:
+            raise Exception("Proxy has no remote_http configured")
+        
+        # Test proxy by making a request through it
+        proxy_url = f"http://{proxy.remote_http}"
+        start_time = datetime.now()
+        
+        try:
+            async with httpx.AsyncClient(
+                proxies={"http://": proxy_url, "https://": proxy_url},
+                timeout=10.0
+            ) as client:
+                response = await client.get("http://google.com")
+                
+                # Calculate latency
+                latency = int((datetime.now() - start_time).total_seconds() * 1000)
+                
+                if response.status_code == 200:
+                    proxy.status = "active"
+                    proxy.latency_ms = latency
+                    logger.info(f"Proxy {proxy_id} health check passed: {latency}ms")
+                else:
+                    proxy.status = "error"
+                    proxy.latency_ms = None
+                    logger.warning(f"Proxy {proxy_id} returned status {response.status_code}")
+        except Exception as check_error:
+            proxy.status = "error"
+            proxy.latency_ms = None
+            logger.error(f"Proxy {proxy_id} health check failed: {check_error}")
+        
+        proxy.last_check_at = datetime.now().isoformat()
+        update_proxy(proxy)
+        
+        add_log(proxy_id, "health_check", "success" if proxy.status == "active" else "failed", 
+                None, f"Latency: {proxy.latency_ms}ms" if proxy.latency_ms else "Check failed")
+        
+        return {
+            "success": True,
+            "status": proxy.status,
+            "latency_ms": proxy.latency_ms,
+            "checked_at": proxy.last_check_at
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to check proxy {proxy_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
