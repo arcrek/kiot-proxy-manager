@@ -20,7 +20,7 @@ chmod +x setup.sh
 # Or manually:
 cp env.example .env
 nano .env  # Edit DOMAIN, passwords, SECRET_KEY
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Step 3: Access
@@ -70,17 +70,17 @@ Port: 80
 
 ### View Logs
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### Restart Services
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
 ### Stop Services
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Backup Data
@@ -92,8 +92,8 @@ cp data/data.json backup-$(date +%Y%m%d).json
 
 ### Can't access web UI
 - Check DNS: `nslookup app.yourdomain.com`
-- Check Docker: `docker-compose ps`
-- View logs: `docker-compose logs backend`
+- Check Docker: `docker compose ps`
+- View logs: `docker compose logs backend`
 
 ### Proxy not working
 - Check status in UI (should show latency)

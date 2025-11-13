@@ -91,13 +91,14 @@ This allows:
 
 ```bash
 # Start all services
-docker-compose up -d
+docker compose up -d
+# Or for older Docker: docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Check status
-docker-compose ps
+docker compose ps
 ```
 
 ### 5. Access Web UI
@@ -176,34 +177,34 @@ Click the **🔄 Rotate** button next to any proxy to get a new IP immediately.
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f backend
-docker-compose logs -f traefik
+docker compose logs -f backend
+docker compose logs -f traefik
 ```
 
 ### Restart Services
 
 ```bash
 # Restart all
-docker-compose restart
+docker compose restart
 
 # Restart specific service
-docker-compose restart backend
+docker compose restart backend
 ```
 
 ### Stop Services
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Backup Data
 
 ```bash
 # Backup data.json
-docker-compose exec backend cat /app/data/data.json > backup-$(date +%Y%m%d).json
+docker compose exec backend cat /app/data/data.json > backup-$(date +%Y%m%d).json
 
 # Or copy directly
 cp data/data.json backup-$(date +%Y%m%d).json
@@ -213,13 +214,13 @@ cp data/data.json backup-$(date +%Y%m%d).json
 
 ```bash
 # Stop backend
-docker-compose stop backend
+docker compose stop backend
 
 # Restore data
 cp backup-20251113.json data/data.json
 
 # Start backend
-docker-compose start backend
+docker compose start backend
 ```
 
 ## Troubleshooting
@@ -246,8 +247,8 @@ nslookup app.yourdomain.com
 
 1. **Check if proxy is running:**
 ```bash
-docker-compose ps
-docker-compose logs backend | grep proxy1
+docker compose ps
+docker compose logs backend | grep proxy1
 ```
 
 2. **Test proxy directly:**
@@ -261,7 +262,7 @@ curl -x http://proxy1.yourdomain.com:80 https://ipinfo.io -v
 # Open: http://YOUR_SERVER_IP:8080
 
 # Check dynamic config
-docker-compose exec backend cat /app/traefik/proxies.yml
+docker compose exec backend cat /app/traefik/proxies.yml
 ```
 
 4. **Restart the proxy:**
@@ -280,7 +281,7 @@ docker-compose exec backend cat /app/traefik/proxies.yml
 
 1. Stop backend:
 ```bash
-docker-compose stop backend
+docker compose stop backend
 ```
 
 2. Generate new password hash:
@@ -295,7 +296,7 @@ print(hashed.decode())
 
 4. Start backend:
 ```bash
-docker-compose start backend
+docker compose start backend
 ```
 
 ## Configuration Reference
@@ -339,7 +340,7 @@ docker-compose start backend
 
 ### Using Custom Ports
 
-Edit `docker-compose.yml`:
+Edit `docker compose.yml`:
 
 ```yaml
 backend:
@@ -486,7 +487,7 @@ kiot-prod/
 │   └── data.json
 ├── traefik/                  # Traefik config (created automatically)
 │   └── proxies.yml
-├── docker-compose.yml
+├── docker compose.yml
 ├── env.example
 └── README.md
 ```

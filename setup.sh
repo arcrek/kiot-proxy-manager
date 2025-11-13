@@ -16,8 +16,12 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Check if Docker Compose is installed
-if ! docker compose version &> /dev/null && ! command -v docker-compose &> /dev/null; then
+# Check if Docker Compose is installed and set the command
+if docker compose version &> /dev/null; then
+    DOCKER_COMPOSE="docker compose"
+elif command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE="docker-compose"
+else
     echo "❌ Docker Compose is not installed. Please install Docker Compose first."
     echo "Visit: https://docs.docker.com/compose/install/"
     exit 1
@@ -106,7 +110,7 @@ fi
 echo ""
 echo "🚀 Building and starting services..."
 echo ""
-docker-compose up -d --build
+$DOCKER_COMPOSE up -d --build
 
 echo ""
 echo "========================================="
@@ -125,10 +129,10 @@ echo ""
 echo "⚠️  IMPORTANT: Change the default password after first login!"
 echo ""
 echo "Useful commands:"
-echo "   docker-compose ps              - Check status"
-echo "   docker-compose logs -f         - View logs"
-echo "   docker-compose restart         - Restart services"
-echo "   docker-compose down            - Stop services"
+echo "   $DOCKER_COMPOSE ps              - Check status"
+echo "   $DOCKER_COMPOSE logs -f         - View logs"
+echo "   $DOCKER_COMPOSE restart         - Restart services"
+echo "   $DOCKER_COMPOSE down            - Stop services"
 echo ""
 echo "For troubleshooting, see README.md"
 echo ""
