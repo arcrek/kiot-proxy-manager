@@ -3,8 +3,11 @@ FROM node:18-alpine as build
 
 WORKDIR /app
 
+# Disable source maps for faster build
+ENV GENERATE_SOURCEMAP=false
+
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
+RUN npm install --legacy-peer-deps --no-package-lock
 
 COPY . .
 RUN npm run build
